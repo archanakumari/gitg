@@ -48,9 +48,30 @@ struct _GitgEncoding
 	const gchar *name;
 };
 
+#if GLIB_CHECK_VERSION(2, 26, 0)
+
 G_DEFINE_BOXED_TYPE (GitgEncoding, gitg_encoding,
                      gitg_encoding_copy,
                      gitg_encoding_free)
+
+#else
+
+GType
+gitg_encoding_get_type (void)
+{
+	static GType our_type = 0;
+
+	if (!our_type)
+	{
+		our_type = g_boxed_type_register_static ("GitgEncoding",
+		                                         (GBoxedCopyFunc)gitg_encoding_copy,
+		                                         (GBoxedFreeFunc)gitg_encoding_free);
+	}
+
+	return our_type;
+}
+
+#endif
 
 /* 
  * The original versions of the following tables are taken from profterm 

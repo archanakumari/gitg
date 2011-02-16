@@ -26,12 +26,10 @@
 #include <glib/gi18n.h>
 #include <libgitg/gitg-config.h>
 #include <libgitg/gitg-ref.h>
-#include <libgitg/gitg-runner.h>
 #include <libgitg/gitg-hash.h>
 
 #include "config.h"
 
-#include "gitg-data-binding.h"
 #include "gitg-dirs.h"
 #include "gitg-window.h"
 #include "gitg-cell-renderer-path.h"
@@ -158,31 +156,31 @@ static GtkBuildableIface parent_iface;
 static GtkWindowClass *parent_class = NULL;
 
 static void
-on_branch_action_runner_end (GitgRunner *runner,
-                             gboolean    cancelled,
-                             GitgWindow *window)
+on_branch_action_shell_end (GitgShell *shell,
+                            gboolean    cancelled,
+                            GitgWindow *window)
 {
-	window->priv->branch_actions = g_list_remove (window->priv->branch_actions, runner);
-	g_object_unref (runner);
+	window->priv->branch_actions = g_list_remove (window->priv->branch_actions, shell);
+	g_object_unref (shell);
 }
 
 gboolean
 gitg_window_add_branch_action (GitgWindow *window,
-                               GitgRunner *runner)
+                               GitgShell  *shell)
 {
-	if (runner != NULL && gitg_runner_running (runner))
+	if (shell != NULL && gitg_io_get_running (GITG_IO (shell)))
 	{
-		window->priv->branch_actions = g_list_prepend (window->priv->branch_actions, runner);
+		window->priv->branch_actions = g_list_prepend (window->priv->branch_actions, shell);
 
-		g_signal_connect (runner, "end-loading", G_CALLBACK (on_branch_action_runner_end), window);
+		g_signal_connect (shell, "end", G_CALLBACK (on_branch_action_shell_end), window);
 	}
-	else if (runner)
+	else if (shell)
 	{
-		g_object_unref (runner);
-		runner = NULL;
+		g_object_unref (shell);
+		shell = NULL;
 	}
 
-	return runner != NULL;
+	return shell != NULL;
 }
 
 static void
@@ -198,7 +196,7 @@ gitg_window_finalize (GObject *object)
 
 	for (item = copy; item; item = g_list_next (item))
 	{
-		gitg_runner_cancel (GITG_RUNNER (item->data));
+		gitg_io_cancel (item->data);
 	}
 
 	g_list_free (copy);
@@ -1217,7 +1215,7 @@ on_repository_loaded (GitgRepository *repository,
 }
 
 static void
-on_update (GitgRunner  *loader,
+on_update (GitgShell   *loader,
            gchar      **revisions,
            GitgWindow  *window)
 {
@@ -1251,42 +1249,45 @@ gitg_window_set_select_on_load (GitgWindow  *window,
 }
 
 static gboolean
-convert_setting_to_inactive_max (GValue const *setting,
-                                 GValue       *value,
+convert_setting_to_inactive_max (GBinding     *binding,
+                                 const GValue *source_value,
+                                 GValue       *target_value,
                                  gpointer      userdata)
 {
-	g_return_val_if_fail (G_VALUE_HOLDS(setting, G_TYPE_INT), FALSE);
-	g_return_val_if_fail (G_VALUE_HOLDS(value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (source_value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (target_value, G_TYPE_INT), FALSE);
 
-	gint s = g_value_get_int (setting);
-	g_value_set_int (value, 2 + s * 8);
+	gint s = g_value_get_int (source_value);
+	g_value_set_int (target_value, 2 + s * 8);
 
 	return TRUE;
 }
 
 static gboolean
-convert_setting_to_inactive_collapse (GValue const *setting,
-                                      GValue       *value,
+convert_setting_to_inactive_collapse (GBinding     *binding,
+                                      const GValue *source_value,
+                                      GValue       *target_value,
                                       gpointer      userdata)
 {
-	g_return_val_if_fail (G_VALUE_HOLDS(setting, G_TYPE_INT), FALSE);
-	g_return_val_if_fail (G_VALUE_HOLDS(value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (source_value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (target_value, G_TYPE_INT), FALSE);
 
-	gint s = g_value_get_int (setting);
-	g_value_set_int (value, 1 + s * 3);
+	gint s = g_value_get_int (source_value);
+	g_value_set_int (target_value, 1 + s * 3);
 
 	return TRUE;
 }
 
 static gboolean
-convert_setting_to_inactive_gap (GValue const *setting,
-                                 GValue       *value,
+convert_setting_to_inactive_gap (GBinding     *binding,
+                                 const GValue *source_value,
+                                 GValue       *target_value,
                                  gpointer      userdata)
 {
-	g_return_val_if_fail (G_VALUE_HOLDS(setting, G_TYPE_INT), FALSE);
-	g_return_val_if_fail (G_VALUE_HOLDS(value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (source_value, G_TYPE_INT), FALSE);
+	g_return_val_if_fail (G_VALUE_HOLDS (target_value, G_TYPE_INT), FALSE);
 
-	g_value_set_int (value, 10);
+	g_value_set_int (target_value, 10);
 
 	return TRUE;
 }
@@ -1301,51 +1302,65 @@ bind_repository (GitgWindow *window)
 
 	preferences = gitg_preferences_get_default ();
 
-	gitg_data_binding_new_full (preferences,
-	                            "history-collapse-inactive-lanes",
-	                            window->priv->repository,
-	                            "inactive-max",
-	                            convert_setting_to_inactive_max,
-	                            window);
+	g_object_bind_property_full (preferences,
+	                             "history-collapse-inactive-lanes",
+	                             window->priv->repository,
+	                             "inactive-max",
+	                             G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE,
+	                             convert_setting_to_inactive_max,
+	                             NULL,
+	                             window,
+	                             NULL);
 
-	gitg_data_binding_new (preferences,
-	                       "history-show-virtual-stash",
-	                       window->priv->repository,
-	                       "show-stash");
+	g_object_bind_property (preferences,
+	                        "history-show-virtual-stash",
+	                        window->priv->repository,
+	                        "show-stash",
+	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 
-	gitg_data_binding_new (preferences,
-	                       "history-show-virtual-staged",
-	                       window->priv->repository,
-	                       "show-staged");
+	g_object_bind_property (preferences,
+	                        "history-show-virtual-staged",
+	                        window->priv->repository,
+	                        "show-staged",
+	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 
-	gitg_data_binding_new (preferences,
-	                       "history-show-virtual-unstaged",
-	                       window->priv->repository,
-	                       "show-unstaged");
+	g_object_bind_property (preferences,
+	                        "history-show-virtual-unstaged",
+	                        window->priv->repository,
+	                        "show-unstaged",
+	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 
-	gitg_data_binding_new (preferences,
-	                       "history-topo-order",
-	                       window->priv->repository,
-	                       "topo-order");
+	g_object_bind_property (preferences,
+	                        "history-topo-order",
+	                        window->priv->repository,
+	                        "topo-order",
+	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 
-	gitg_data_binding_new_full (preferences,
-	                            "history-collapse-inactive-lanes",
-	                            window->priv->repository,
-	                            "inactive-collapse",
-	                            convert_setting_to_inactive_collapse,
-	                            window);
+	g_object_bind_property_full (preferences,
+	                             "history-collapse-inactive-lanes",
+	                             window->priv->repository,
+	                             "inactive-collapse",
+	                             G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE,
+	                             convert_setting_to_inactive_collapse,
+	                             NULL,
+	                             window,
+	                             NULL);
 
-	gitg_data_binding_new_full (preferences,
-	                            "history-collapse-inactive-lanes",
-	                            window->priv->repository,
-	                            "inactive-gap",
-	                            convert_setting_to_inactive_gap,
-	                            window);
+	g_object_bind_property_full (preferences,
+	                             "history-collapse-inactive-lanes",
+	                             window->priv->repository,
+	                             "inactive-gap",
+	                             G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE,
+	                             convert_setting_to_inactive_gap,
+	                             NULL,
+	                             window,
+	                             NULL);
 
-	gitg_data_binding_new (preferences,
-	                       "history-collapse-inactive-lanes-active",
-	                       window->priv->repository,
-	                       "inactive-enabled");
+	g_object_bind_property (preferences,
+	                        "history-collapse-inactive-lanes-active",
+	                        window->priv->repository,
+	                        "inactive-enabled",
+	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 }
 
 static gboolean
@@ -1782,7 +1797,7 @@ load_repository (GitgWindow   *window,
 		gtk_tree_view_set_model (window->priv->tree_view,
 		                         GTK_TREE_MODEL (window->priv->repository));
 
-		GitgRunner *loader = gitg_repository_get_loader (window->priv->repository);
+		GitgShell *loader = gitg_repository_get_loader (window->priv->repository);
 
 		gitg_window_set_select_on_load (window, selection);
 

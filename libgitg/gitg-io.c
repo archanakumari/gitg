@@ -22,6 +22,8 @@
 
 #include "gitg-io.h"
 
+#include "glib-compat.h"
+
 #define GITG_IO_GET_PRIVATE(object)(G_TYPE_INSTANCE_GET_PRIVATE((object), GITG_TYPE_IO, GitgIOPrivate))
 
 struct _GitgIOPrivate

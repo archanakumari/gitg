@@ -22,6 +22,8 @@
 
 #include "gitg-line-parser.h"
 
+#include "glib-compat.h"
+
 #define GITG_LINE_PARSER_GET_PRIVATE(object)(G_TYPE_INSTANCE_GET_PRIVATE((object), GITG_TYPE_LINE_PARSER, GitgLineParserPrivate))
 
 struct _GitgLineParserPrivate

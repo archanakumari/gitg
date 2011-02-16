@@ -37,6 +37,7 @@ INST_H_FILES =			\
 	gitg-line-parser.h
 
 NOINST_H_FILES =			\
+	glib-compat.h			\
 	gitg-convert.h			\
 	gitg-debug.h			\
 	gitg-i18n.h			\
@@ -46,6 +47,7 @@ NOINST_H_FILES =			\
 
 C_FILES =				\
 	$(BUILT_SOURCES)		\
+	glib-compat.c			\
 	gitg-changed-file.c		\
 	gitg-color.c			\
 	gitg-commit.c			\
